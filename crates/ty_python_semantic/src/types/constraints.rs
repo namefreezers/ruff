@@ -747,8 +747,11 @@ impl<'db, 'c> ConstraintSet<'db, 'c> {
         Self::from_node(builder, node, source_order)
     }
 
-    #[expect(dead_code)]
-    pub(crate) fn exists(
+    /// Reduces the set of inferable typevars for this constraint set. You provide the typevars that
+    /// were inferable when this constraint set was created, and which should be abstracted away.
+    /// Those typevars will be removed from the constraint set, and the constraint set will return
+    /// true whenever there was _any_ specialization of those typevars that returned true before.
+    pub(crate) fn reduce_inferable(
         self,
         db: &'db dyn Db,
         env: &ProgramEnvironment<'db>,
@@ -775,11 +778,8 @@ impl<'db, 'c> ConstraintSet<'db, 'c> {
         Self::from_node(builder, node, source_order)
     }
 
-    /// Reduces the set of inferable typevars for this constraint set. You provide the typevars that
-    /// were inferable when this constraint set was created, and which should be abstracted away.
-    /// Those typevars will be removed from the constraint set, and the constraint set will return
-    /// true whenever there was _any_ specialization of those typevars that returned true before.
-    pub(crate) fn reduce_inferable(
+    #[expect(dead_code, reason = "XXX: to be removed")]
+    pub(crate) fn old_reduce_inferable(
         self,
         db: &'db dyn Db,
         env: &ProgramEnvironment<'db>,
@@ -6735,6 +6735,43 @@ class E: ...
             assert_eq!(storage.typevar_id(db, u), original_u_id);
             assert_eq!(storage.typevar_id(db, t).index(), 1);
         });
+    }
+
+    #[test]
+    fn owned_constraint_set_load_preserves_quantified_solutions() {
+        let db = setup_db();
+        let db = &db;
+        let env = db.program_environment();
+        let t = create_typevar(db, "T");
+        let u = create_typevar(db, "U");
+        let inferable = TypeVarSet::from_typevars(db, [t, u]);
+        let expected = Ok(Solutions::Constrained(SolutionPaths::Complete(vec![
+            solution([TypeVarSolution {
+                bound_typevar: u,
+                solution: known_instance(db, KnownClass::Str),
+            }]),
+        ])));
+
+        // ∃ T • (T = int ∧ U = str) constrains U, but must not return a binding for T.
+        let source = ConstraintSetBuilder::new().into_owned(|builder| {
+            let t_int = create_constraint(db, builder, t, KnownClass::Int);
+            let u_str = create_constraint(db, builder, u, KnownClass::Str);
+            t_int.and(db, builder, || u_str).reduce_inferable(
+                db,
+                &env,
+                builder,
+                TypeVarSet::from_typevars(db, [t]),
+            )
+        });
+        source.query(|_, constraints| {
+            assert_eq!(constraints.solutions(db, &env, inferable), expected);
+        });
+
+        // Encounter U first in the destination. Loading must still quantify T rather than U.
+        let destination = ConstraintSetBuilder::new();
+        let _u_str = create_constraint(db, &destination, u, KnownClass::Str);
+        let loaded = destination.load(db, &env, &source);
+        assert_eq!(loaded.solutions(db, &env, inferable), expected);
     }
 
     fn create_compacted_owned_set(db: &TestDb) -> OwnedConstraintSet<'_> {
