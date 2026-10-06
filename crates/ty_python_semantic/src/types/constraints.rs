@@ -819,6 +819,23 @@ impl<'db, 'c> ConstraintSet<'db, 'c> {
         tcx: TypeContext<'db>,
         visitor: &ApplyTypeMappingVisitor<'_, 'db>,
     ) -> Self {
+        self.apply_type_mapping_with_cache(
+            db,
+            type_mapping,
+            tcx,
+            visitor,
+            &mut FxHashMap::default(),
+        )
+    }
+
+    fn apply_type_mapping_with_cache(
+        self,
+        db: &'db dyn Db,
+        type_mapping: &TypeMapping<'_, 'db>,
+        tcx: TypeContext<'db>,
+        visitor: &ApplyTypeMappingVisitor<'_, 'db>,
+        mapped_constraints: &mut FxHashMap<ConstraintId, (NodeId, Option<SourceOrderId>)>,
+    ) -> Self {
         fn rebuild_node(
             storage: &mut ConstraintSetStorage<'_>,
             old_node: NodeId,
@@ -876,7 +893,9 @@ impl<'db, 'c> ConstraintSet<'db, 'c> {
         });
         drop(storage);
 
-        let mut mapped_constraints = FxHashMap::default();
+        // Source-order entries refer to atomic constraints, including those inside existential
+        // bodies. Share their mappings with recursive calls so rebuilding the outer source order
+        // preserves those entries, even when the atoms only occur inside a quantifier.
         for constraint_id in constraints {
             if mapped_constraints.contains_key(&constraint_id) {
                 continue;
@@ -884,8 +903,14 @@ impl<'db, 'c> ConstraintSet<'db, 'c> {
             let storage = self.builder.storage.borrow();
             let constraint = storage.constraint_data(constraint_id).clone();
             drop(storage);
-            let mapped =
-                constraint.apply_type_mapping_impl(db, self.builder, type_mapping, tcx, visitor);
+            let mapped = constraint.apply_type_mapping_impl(
+                db,
+                self.builder,
+                type_mapping,
+                tcx,
+                visitor,
+                mapped_constraints,
+            );
             mapped_constraints.insert(constraint_id, mapped);
         }
 
@@ -905,7 +930,7 @@ impl<'db, 'c> ConstraintSet<'db, 'c> {
             rebuild_node(
                 &mut storage,
                 self.node,
-                &mapped_constraints,
+                mapped_constraints,
                 &mut FxHashMap::default(),
             ),
             source_order,
@@ -5017,6 +5042,37 @@ mod tests {
                 .iff(db, &builder, expected)
                 .is_always_satisfied(db, &env)
         );
+    }
+
+    #[test]
+    fn type_mapping_preserves_existential_satisfiability() {
+        // Renaming T to U preserves satisfiability of both
+        // ∃ T,V • (T = int ∧ V = str) and ∃ V • ∃ T • (T = int ∧ V = str).
+        let db = setup_db();
+        let db = &db;
+        let env = db.program_environment();
+        let t = create_typevar(db, "T");
+        let u = create_typevar(db, "U");
+        let v = create_typevar(db, "V");
+        let builder = ConstraintSetBuilder::new();
+        let body = create_constraint(db, &builder, t, KnownClass::Int).and(db, &builder, || {
+            create_constraint(db, &builder, v, KnownClass::Str)
+        });
+        let quantified =
+            body.reduce_inferable(db, &env, &builder, TypeVarSet::from_typevars(db, [t, v]));
+        let nested = body
+            .reduce_inferable(db, &env, &builder, TypeVarSet::from_typevars(db, [t]))
+            .reduce_inferable(db, &env, &builder, TypeVarSet::from_typevars(db, [v]));
+
+        for constraints in [quantified, nested] {
+            let mapped = constraints.apply_type_mapping_impl(
+                db,
+                &TypeMapping::ApplySpecialization(ApplySpecialization::Single(t, Type::TypeVar(u))),
+                TypeContext::default(),
+                &ApplyTypeMappingVisitor::new(&env),
+            );
+            assert!(mapped.is_always_satisfied(db, &env));
+        }
     }
 
     #[test]
