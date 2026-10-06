@@ -7,8 +7,8 @@ use rustc_hash::FxHashSet;
 use crate::place::{DefinedPlace, Place};
 use crate::types::callable::CallableTypeKind;
 use crate::types::constraints::{
-    ConstraintSetBuilder, IteratorConstraintsExtension, OptionConstraintsExtension,
-    OwnedConstraintSet,
+    ConstraintProvenance, ConstraintSetBuilder, IteratorConstraintsExtension,
+    OptionConstraintsExtension, OwnedConstraintSet,
 };
 use crate::types::cyclic::{HasIdentity, PairVisitor, TypeIdentity};
 use crate::types::enums::is_single_member_enum;
@@ -374,6 +374,7 @@ impl<'db> Type<'db> {
             TypeVarSet::None,
             TypeRelation::Subtyping,
             TypeVarEvaluation::Lazy,
+            ConstraintProvenance::Evidence,
         )
     }
 
@@ -401,6 +402,7 @@ impl<'db> Type<'db> {
             relation: TypeRelation::SubtypingAssuming,
             typevar_evaluation: TypeVarEvaluation::Eager,
             context_tree: None,
+            provenance: ConstraintProvenance::Evidence,
             given: assuming,
             perform_expensive_checks: true,
             relation_visitor: &relation_visitor,
@@ -476,6 +478,7 @@ impl<'db> Type<'db> {
             relation,
             typevar_evaluation: TypeVarEvaluation::Eager,
             context_tree: Some(ErrorContextTree::new(relation)),
+            provenance: ConstraintProvenance::Evidence,
             given: ConstraintSet::from_bool(&builder, false),
             perform_expensive_checks: true,
             relation_visitor: &HasRelationToVisitor::default(&builder),
@@ -495,8 +498,14 @@ impl<'db> Type<'db> {
         target: Type<'db>,
     ) -> bool {
         let constraints = ConstraintSetBuilder::new();
-        self.when_constraint_set_assignable_to(db, env, target, &constraints)
-            .is_always_satisfied(db, env)
+        self.when_constraint_set_assignable_to(
+            db,
+            env,
+            target,
+            &constraints,
+            ConstraintProvenance::Evidence,
+        )
+        .is_always_satisfied(db, env)
     }
 
     /// Return true if this type is a subtype of `target` for every specialization of the type
@@ -521,6 +530,7 @@ impl<'db> Type<'db> {
                     TypeVarSet::None,
                     TypeRelation::Subtyping,
                     TypeVarEvaluation::Lazy,
+                    ConstraintProvenance::Evidence,
                 )
                 .is_always_satisfied(db, &env)
         }
@@ -658,6 +668,7 @@ impl<'db> Type<'db> {
                     TypeVarSet::None,
                     TypeRelation::Assignability,
                     TypeVarEvaluation::Lazy,
+                    ConstraintProvenance::Evidence,
                 )
             })
         }
@@ -679,6 +690,7 @@ impl<'db> Type<'db> {
         env: &ProgramEnvironment<'db>,
         target: Type<'db>,
         constraints: &'c ConstraintSetBuilder<'db>,
+        provenance: ConstraintProvenance,
     ) -> ConstraintSet<'db, 'c> {
         self.has_relation_to_with_typevar_evaluation(
             db,
@@ -688,6 +700,7 @@ impl<'db> Type<'db> {
             TypeVarSet::None,
             TypeRelation::Assignability,
             TypeVarEvaluation::Lazy,
+            provenance,
         )
     }
 
@@ -769,6 +782,7 @@ impl<'db> Type<'db> {
             inferable,
             relation,
             TypeVarEvaluation::Eager,
+            ConstraintProvenance::Evidence,
         )
     }
 
@@ -782,6 +796,7 @@ impl<'db> Type<'db> {
         inferable: TypeVarSet<'db>,
         relation: TypeRelation,
         typevar_evaluation: TypeVarEvaluation,
+        provenance: ConstraintProvenance,
     ) -> ConstraintSet<'db, 'c> {
         let relation_visitor = HasRelationToVisitor::default(constraints);
         let disjointness_visitor = IsDisjointVisitor::default(constraints);
@@ -794,6 +809,7 @@ impl<'db> Type<'db> {
             relation,
             typevar_evaluation,
             context_tree: None,
+            provenance,
             given: ConstraintSet::from_bool(constraints, false),
             perform_expensive_checks: true,
             relation_visitor: &relation_visitor,
@@ -928,6 +944,7 @@ impl<'db> Type<'db> {
         let checker = EquivalenceChecker {
             env: materialization_visitor.env,
             constraints,
+            provenance: ConstraintProvenance::Evidence,
             given: ConstraintSet::from_bool(constraints, false),
             perform_expensive_checks: true,
             typevar_evaluation,
@@ -982,6 +999,7 @@ impl<'db> Type<'db> {
             constraints,
             inferable,
             context_tree: None,
+            provenance: ConstraintProvenance::Evidence,
             given: ConstraintSet::from_bool(constraints, false),
             perform_expensive_checks: true,
             disjointness_visitor: &disjointness_visitor,
@@ -1006,6 +1024,7 @@ impl<'db> Type<'db> {
             constraints: &constraints,
             inferable: TypeVarSet::None,
             context_tree: Some(context.clone()),
+            provenance: ConstraintProvenance::Evidence,
             given: ConstraintSet::from_bool(&constraints, false),
             perform_expensive_checks: true,
             relation_visitor: &HasRelationToVisitor::default(&constraints),
@@ -1037,6 +1056,7 @@ impl<'db> Type<'db> {
             constraints,
             inferable,
             context_tree: None,
+            provenance: ConstraintProvenance::Evidence,
             given: ConstraintSet::from_bool(constraints, false),
             perform_expensive_checks: false,
             disjointness_visitor: &disjointness_visitor,
@@ -1107,6 +1127,7 @@ pub(super) struct TypeRelationChecker<'a, 'c, 'db> {
     pub(super) inferable: TypeVarSet<'db>,
     pub(super) relation: TypeRelation,
     pub(super) typevar_evaluation: TypeVarEvaluation,
+    pub(super) provenance: ConstraintProvenance,
     context_tree: Option<ErrorContextTree<'db>>,
     given: ConstraintSet<'db, 'c>,
     perform_expensive_checks: bool,
@@ -1143,6 +1164,7 @@ impl<'a, 'c, 'db> TypeRelationChecker<'a, 'c, 'db> {
             relation,
             typevar_evaluation: TypeVarEvaluation::Eager,
             context_tree: None,
+            provenance: ConstraintProvenance::Evidence,
             given: ConstraintSet::from_bool(constraints, false),
             perform_expensive_checks: true,
             relation_visitor,
@@ -1211,6 +1233,7 @@ impl<'a, 'c, 'db> TypeRelationChecker<'a, 'c, 'db> {
             relation: TypeRelation::Assignability,
             typevar_evaluation: TypeVarEvaluation::Lazy,
             context_tree: Some(ErrorContextTree::new(TypeRelation::Assignability)),
+            provenance: ConstraintProvenance::Evidence,
             given: ConstraintSet::from_bool(constraints, false),
             perform_expensive_checks: true,
             relation_visitor,
@@ -1235,6 +1258,7 @@ impl<'a, 'c, 'db> TypeRelationChecker<'a, 'c, 'db> {
             relation: TypeRelation::Assignability,
             typevar_evaluation: TypeVarEvaluation::Eager,
             context_tree: Some(ErrorContextTree::new(TypeRelation::Assignability)),
+            provenance: ConstraintProvenance::Evidence,
             given: ConstraintSet::from_bool(constraints, false),
             perform_expensive_checks: true,
             relation_visitor,
@@ -1259,17 +1283,21 @@ impl<'a, 'c, 'db> TypeRelationChecker<'a, 'c, 'db> {
         target: ClassType<'db>,
     ) -> bool {
         let env = self.env;
-        Self::subtyping(
-            env,
-            self.constraints,
-            TypeVarSet::None,
-            self.relation_visitor,
-            self.disjointness_visitor,
-            self.signature_relation_visitor,
-            self.materialization_visitor,
-        )
-        .check_class_pair(db, source, target)
-        .is_always_satisfied(db, env)
+        let checker = Self {
+            provenance: self.provenance,
+            ..Self::subtyping(
+                env,
+                self.constraints,
+                TypeVarSet::None,
+                self.relation_visitor,
+                self.disjointness_visitor,
+                self.signature_relation_visitor,
+                self.materialization_visitor,
+            )
+        };
+        checker
+            .check_class_pair(db, source, target)
+            .is_always_satisfied(db, env)
     }
 
     pub(super) const fn is_eager_assignability(&self) -> bool {
@@ -1814,6 +1842,7 @@ impl<'a, 'c, 'db> TypeRelationChecker<'a, 'c, 'db> {
                     db,
                     env,
                     self.constraints,
+                    self.provenance,
                     bound_typevar,
                     upper,
                 );
@@ -1827,6 +1856,7 @@ impl<'a, 'c, 'db> TypeRelationChecker<'a, 'c, 'db> {
                     db,
                     env,
                     self.constraints,
+                    self.provenance,
                     bound_typevar,
                     lower,
                 );
@@ -3055,6 +3085,7 @@ impl<'a, 'c, 'db> TypeRelationChecker<'a, 'c, 'db> {
         EquivalenceChecker {
             env: self.env,
             constraints: self.constraints,
+            provenance: self.provenance,
             given: self.given,
             perform_expensive_checks: self.perform_expensive_checks,
             typevar_evaluation: TypeVarEvaluation::Eager,
@@ -3071,6 +3102,7 @@ impl<'a, 'c, 'db> TypeRelationChecker<'a, 'c, 'db> {
             constraints: self.constraints,
             inferable: self.inferable,
             context_tree: None,
+            provenance: self.provenance,
             given: self.given,
             perform_expensive_checks: self.perform_expensive_checks,
             relation_visitor: self.relation_visitor,
@@ -3102,6 +3134,7 @@ impl<'a, 'c, 'db> TypeRelationChecker<'a, 'c, 'db> {
 pub(super) struct EquivalenceChecker<'a, 'c, 'db> {
     env: &'a ProgramEnvironment<'db>,
     pub(super) constraints: &'c ConstraintSetBuilder<'db>,
+    provenance: ConstraintProvenance,
     given: ConstraintSet<'db, 'c>,
     perform_expensive_checks: bool,
     typevar_evaluation: TypeVarEvaluation,
@@ -3129,6 +3162,7 @@ impl<'c, 'db> EquivalenceChecker<'_, 'c, 'db> {
             typevar_evaluation: self.typevar_evaluation,
             constraints: self.constraints,
             context_tree: None,
+            provenance: self.provenance,
             given: self.given,
             perform_expensive_checks: self.perform_expensive_checks,
             inferable: TypeVarSet::None,
@@ -3174,6 +3208,7 @@ pub(super) struct DisjointnessChecker<'a, 'c, 'db> {
     pub(super) constraints: &'c ConstraintSetBuilder<'db>,
     inferable: TypeVarSet<'db>,
     context_tree: Option<ErrorContextTree<'db>>,
+    provenance: ConstraintProvenance,
     given: ConstraintSet<'db, 'c>,
     perform_expensive_checks: bool,
 
@@ -3204,6 +3239,7 @@ impl<'a, 'c, 'db> DisjointnessChecker<'a, 'c, 'db> {
             constraints,
             inferable,
             context_tree: None,
+            provenance: ConstraintProvenance::Evidence,
             given: ConstraintSet::from_bool(constraints, false),
             perform_expensive_checks: true,
             disjointness_visitor,
@@ -3224,6 +3260,7 @@ impl<'a, 'c, 'db> DisjointnessChecker<'a, 'c, 'db> {
             constraints: self.constraints,
             inferable: self.inferable,
             context_tree: None,
+            provenance: self.provenance,
             given: self.given,
             perform_expensive_checks: self.perform_expensive_checks,
             relation_visitor: self.relation_visitor,
@@ -3263,6 +3300,7 @@ impl<'a, 'c, 'db> DisjointnessChecker<'a, 'c, 'db> {
         EquivalenceChecker {
             env: self.env,
             constraints: self.constraints,
+            provenance: self.provenance,
             given: self.given,
             perform_expensive_checks: self.perform_expensive_checks,
             typevar_evaluation: TypeVarEvaluation::Eager,
@@ -4148,12 +4186,15 @@ impl<'a, 'c, 'db> DisjointnessChecker<'a, 'c, 'db> {
                 nontrivial_check(self, || {
                     class
                         .metaclass_instance_type(db, env)
-                        .when_subtype_of(
+                        .has_relation_to_with_typevar_evaluation(
                             db,
                             env,
                             Type::NominalInstance(instance),
                             self.constraints,
                             self.inferable,
+                            TypeRelation::Subtyping,
+                            TypeVarEvaluation::Eager,
+                            self.provenance,
                         )
                         .negate(db, self.constraints)
                 })

@@ -36,8 +36,8 @@ use crate::types::call::arguments::{
 };
 use crate::types::callable::CallableTypeKind;
 use crate::types::constraints::{
-    CandidateSolutions, CandidateTypeVarSolution, ConstraintFailureEvidence, ConstraintSet,
-    ConstraintSetBuilder, PathBoundSolution, SolutionPaths, Solutions,
+    CandidateSolutions, CandidateTypeVarSolution, ConstraintFailureEvidence, ConstraintProvenance,
+    ConstraintSet, ConstraintSetBuilder, PathBoundSolution, SolutionPaths, Solutions,
 };
 use crate::types::context::LintDiagnosticGuardBuilder;
 use crate::types::dedicated::pydantic::{self, ConfigBoolean};
@@ -2282,6 +2282,7 @@ impl<'db> Bindings<'db> {
                                         env,
                                         ty_b,
                                         constraints,
+                                        ConstraintProvenance::Evidence,
                                     )
                                 });
                                 let tracked = InternedConstraintSet::new(db, result);
@@ -2931,6 +2932,7 @@ impl<'db> Bindings<'db> {
                                 db,
                                 env,
                                 constraints,
+                                ConstraintProvenance::Evidence,
                                 typevar,
                                 lower,
                             )
@@ -2959,6 +2961,7 @@ impl<'db> Bindings<'db> {
                                 db,
                                 env,
                                 constraints,
+                                ConstraintProvenance::Evidence,
                                 typevar,
                                 upper,
                             )
@@ -2987,6 +2990,7 @@ impl<'db> Bindings<'db> {
                                 db,
                                 env,
                                 constraints,
+                                ConstraintProvenance::Evidence,
                                 typevar,
                                 value,
                             )
@@ -3018,6 +3022,7 @@ impl<'db> Bindings<'db> {
                                 db,
                                 env,
                                 constraints,
+                                ConstraintProvenance::Evidence,
                                 typevar,
                                 lower,
                                 upper,
@@ -6023,8 +6028,9 @@ impl<'db> CallInference<'_, 'db> {
                     self.env,
                     tcx,
                     constraints,
+                    ConstraintProvenance::Validity,
                 );
-                builder.intersect_validity_constraints(validity);
+                builder.record_constraint_set(validity);
                 None
             }
             tcx => tcx,

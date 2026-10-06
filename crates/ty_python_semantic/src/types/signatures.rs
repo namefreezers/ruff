@@ -23,8 +23,8 @@ use smallvec::{SmallVec, smallvec_inline};
 use super::{DynamicType, Type, TypeVarVariance, UnionType, any_over_type, semantic_index};
 use crate::types::callable::CallableTypeKind;
 use crate::types::constraints::{
-    CandidateSolutions, ConstraintSet, ConstraintSetBuilder, IteratorConstraintsExtension,
-    OwnedConstraintSet, Solutions,
+    CandidateSolutions, ConstraintProvenance, ConstraintSet, ConstraintSetBuilder,
+    IteratorConstraintsExtension, OwnedConstraintSet, Solutions,
 };
 use crate::types::cyclic::ActiveRecursionDetector;
 use crate::types::generics::{
@@ -1775,7 +1775,9 @@ impl<'db> Signature<'db> {
         let Some(constraints) = self.receiver_constraints() else {
             return checker.always();
         };
-        checker.constraints.load(db, checker.env, constraints)
+        checker
+            .constraints
+            .load_with_provenance(db, checker.env, constraints, checker.provenance)
     }
 
     fn map_receiver_constraints(
@@ -2095,6 +2097,7 @@ impl<'db> Signature<'db> {
                 db,
                 env,
                 constraints,
+                ConstraintProvenance::Evidence,
                 self_bound_typevar,
                 upper,
             );
@@ -2111,6 +2114,7 @@ impl<'db> Signature<'db> {
                                 env,
                                 other_signature.return_ty,
                                 constraints,
+                                ConstraintProvenance::Evidence,
                             )
                         }
                     });
@@ -2407,6 +2411,7 @@ impl<'c, 'db> TypeRelationChecker<'_, 'c, 'db> {
                         db,
                         env,
                         self.constraints,
+                        self.provenance,
                         source_tvar,
                         upper,
                     );
@@ -2465,6 +2470,7 @@ impl<'c, 'db> TypeRelationChecker<'_, 'c, 'db> {
                         db,
                         env,
                         self.constraints,
+                        self.provenance,
                         target_tvar,
                         lower,
                     );
@@ -3093,6 +3099,7 @@ impl<'c, 'db> TypeRelationChecker<'_, 'c, 'db> {
                         db,
                         env,
                         self.constraints,
+                        self.provenance,
                         source_bound_typevar,
                         Type::TypeVar(target_bound_typevar),
                     );
@@ -3122,6 +3129,7 @@ impl<'c, 'db> TypeRelationChecker<'_, 'c, 'db> {
                         db,
                         env,
                         self.constraints,
+                        self.provenance,
                         target_bound_typevar,
                         lower,
                     );
@@ -3151,6 +3159,7 @@ impl<'c, 'db> TypeRelationChecker<'_, 'c, 'db> {
                         db,
                         env,
                         self.constraints,
+                        self.provenance,
                         source_bound_typevar,
                         upper,
                     );
@@ -3280,6 +3289,7 @@ impl<'c, 'db> TypeRelationChecker<'_, 'c, 'db> {
                                 db,
                                 env,
                                 self.constraints,
+                                self.provenance,
                                 target_bound_typevar,
                                 lower,
                             );
@@ -3307,6 +3317,7 @@ impl<'c, 'db> TypeRelationChecker<'_, 'c, 'db> {
                                 db,
                                 env,
                                 self.constraints,
+                                self.provenance,
                                 source_bound_typevar,
                                 upper,
                             );
@@ -3317,6 +3328,7 @@ impl<'c, 'db> TypeRelationChecker<'_, 'c, 'db> {
                             db,
                             env,
                             self.constraints,
+                            self.provenance,
                             source_bound_typevar,
                             Type::TypeVar(target_bound_typevar),
                         );
@@ -3343,6 +3355,7 @@ impl<'c, 'db> TypeRelationChecker<'_, 'c, 'db> {
                         db,
                         env,
                         self.constraints,
+                        self.provenance,
                         target_bound_typevar,
                         lower,
                     );
@@ -3488,6 +3501,7 @@ impl<'c, 'db> TypeRelationChecker<'_, 'c, 'db> {
                         db,
                         env,
                         self.constraints,
+                        self.provenance,
                         target_bound_typevar,
                         lower,
                     );
@@ -3514,6 +3528,7 @@ impl<'c, 'db> TypeRelationChecker<'_, 'c, 'db> {
                         db,
                         env,
                         self.constraints,
+                        self.provenance,
                         source_bound_typevar,
                         upper,
                     );
@@ -3629,6 +3644,7 @@ impl<'c, 'db> TypeRelationChecker<'_, 'c, 'db> {
                         db,
                         env,
                         self.constraints,
+                        self.provenance,
                         source_bound_typevar,
                         upper,
                     );

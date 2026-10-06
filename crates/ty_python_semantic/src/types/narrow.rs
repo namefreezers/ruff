@@ -8,6 +8,7 @@ use crate::reachability::{
     type_narrowed_by_previous_patterns,
 };
 use crate::subscript::PyIndex;
+use crate::types::constraints::ConstraintProvenance;
 use crate::types::function::KnownFunction;
 use crate::types::infer::{ExpressionInference, infer_same_file_expression_type};
 use crate::types::iteration::extract_literal_container_element_types;
@@ -939,6 +940,7 @@ fn specialize_narrowing_target_from_intersection<'db>(
                 env,
                 Type::instance(db, env, subject_class),
                 &constraints,
+                ConstraintProvenance::Evidence,
             )
         });
     let mut combined_constraints = base_constraints.next()?;
