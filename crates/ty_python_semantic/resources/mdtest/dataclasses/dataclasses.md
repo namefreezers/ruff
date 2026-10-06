@@ -327,6 +327,25 @@ class D:
 reveal_type(D.__init__)  # revealed:(self: D, x: int = 1) -> None
 ```
 
+## Conditional keyword dictionaries
+
+```py
+from dataclasses import dataclass
+
+def conditional(flag: bool) -> None:
+    @dataclass(**({"frozen": True} if flag else {"frozen": True}))
+    class Frozen:
+        x: int
+
+    reveal_type(Frozen(1))  # revealed: Frozen
+    Frozen(1).x = 2  # error: [invalid-assignment]
+
+    # error: [invalid-dataclass] "`order=True` requires `eq=True`"
+    dataclass(**({"order": True, "eq": False} if flag else {"order": False, "eq": True}))
+    # error: [invalid-dataclass] "`order=True` requires `eq=True`"
+    dataclass(**({"order": False, "eq": True} if flag else {"order": True, "eq": False}))
+```
+
 ## `@dataclass` calls with arguments
 
 The `@dataclass` decorator can take several arguments to customize the existence of the generated

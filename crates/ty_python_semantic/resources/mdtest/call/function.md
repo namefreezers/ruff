@@ -684,6 +684,121 @@ info: Function defined here
   |     ^^^^         ------ Parameter declared here
 ```
 
+### Conditional dictionary arguments
+
+For the conditional dictionary literals below, ty checks each branch as a separate argument list. A
+key present in only one branch cannot satisfy a required parameter in another branch.
+
+```py
+def pair(x: int, *, y: str = "", optional: bool = False) -> None: ...
+def conditional(flag: bool, other: bool) -> None:
+    pair(**({"x": 1, "y": "two"} if flag else {"x": 2}))  # no diagnostic
+    pair(x=1, **({"y": "two"} if flag else {}))  # no diagnostic
+    pair(**({"x": 1} if flag else {}))  # error: [missing-argument]
+    pair(**({"x": 1} if flag else {"x": "wrong"}))  # error: [invalid-argument-type]
+    pair(**({"x": 1} if flag else {"x": 2, "extra": 3}))  # error: [unknown-argument]
+    pair(x=1, **({} if flag else {"x": 2}))  # error: [parameter-already-assigned]
+    pair(**({"x": 1} if flag else {"x": 2} if other else {}))  # error: [missing-argument]
+    pair(**({"x": 1} if flag else {"x": 2}), **({"y": "two"} if other else {}))  # no diagnostic
+
+    kwargs = {"x": 1, "y": "two"} if flag else {"x": 2}
+    pair(**kwargs)  # no diagnostic
+    pair(**kwargs, optional=True)  # no diagnostic
+
+    missing = {"x": 1} if flag else {}
+    pair(**missing)  # error: [missing-argument]
+
+    invalid = {"x": 1} if flag else {"x": "wrong"}
+    # snapshot: invalid-argument-type
+    pair(**invalid)
+```
+
+```snapshot
+error[invalid-argument-type]: Argument to function `pair` is incorrect
+  --> src/mdtest_snippet.py:21:10
+   |
+21 |     pair(**invalid)
+   |          ^^^^^^^^^ Expected `int`, found `Literal["wrong"]`
+info: Function defined here
+ --> src/mdtest_snippet.py:1:5
+  |
+1 | def pair(x: int, *, y: str = "", optional: bool = False) -> None: ...
+  |     ^^^^ ------ Parameter declared here
+```
+
+### Conditional dictionaries with special call inference
+
+Special handling for built-in and typing functions applies to each dictionary alternative.
+
+```py
+from typing_extensions import deprecated
+
+class Parent:
+    def value(self) -> int:
+        return 1
+
+class Child(Parent):
+    def value(self, flag: bool = False) -> int:
+        reveal_type(super(**({} if flag else {})).value())  # revealed: int
+        return super(**({} if flag else {})).value()
+
+def known(flag: bool) -> None:
+    reveal_type(isinstance(1, int, **({} if flag else {})))  # revealed: Literal[True]
+    reveal_type(1, **({} if flag else {}))  # revealed: Literal[1]
+
+    @deprecated("old", **({} if flag else {}))
+    def old() -> None: ...
+    old()  # error: [deprecated] "old"
+```
+
+### Conditional dictionary updates
+
+Updating an initially empty dictionary infers its type from every alternative, regardless of their
+order.
+
+```py
+def updates(flag: bool) -> None:
+    first = {}
+    first.update(**({"first": 1} if flag else {"second": "two"}))
+    reveal_type(first)  # revealed: dict[str, int | str]
+
+    reverse = {}
+    reverse.update(**({"second": "two"} if flag else {"first": 1}))
+    reveal_type(reverse)  # revealed: dict[str, str | int]
+```
+
+### Conditional dictionary exclusions
+
+Conditional dictionary initializers follow the same restrictions as other local dictionaries. ty
+uses ordinary dictionary inference when the local dictionary is annotated, aliased, mutated, or has
+multiple reaching assignments.
+
+```py
+def needs_x(x: int) -> None: ...
+def exclusions(flag: bool, key: str, existing: dict[str, int]) -> None:
+    annotated: dict[str, int] = {"extra": 1} if flag else {}
+    needs_x(**annotated)  # no diagnostic
+
+    aliased = {"extra": 1} if flag else {}
+    alias = aliased
+    needs_x(**aliased)  # no diagnostic
+    needs_x(**alias)  # no diagnostic
+
+    mutated = {"extra": 1} if flag else {}
+    mutated["x"] = 2
+    needs_x(**mutated)  # no diagnostic
+
+    if flag:
+        ambiguous = {"extra": 1} if flag else {}
+    else:
+        ambiguous = {"another": 2}
+    needs_x(**ambiguous)  # no diagnostic
+
+    computed = {key: 1} if flag else {}
+    needs_x(**computed)  # no diagnostic
+    needs_x(**({"extra": 1} if flag else existing))  # no diagnostic
+```
+
 ### Reassigned local dictionary arguments
 
 A fresh assignment replaces the earlier dictionary. Each call uses the single assignment that can
