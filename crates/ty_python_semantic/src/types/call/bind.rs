@@ -6008,7 +6008,8 @@ impl<'db> CallInference<'_, 'db> {
             };
         };
 
-        let mut builder = SpecializationBuilder::new(db, self.env, constraints, generic_context);
+        let mut builder =
+            SpecializationBuilder::new_for_call(db, self.env, constraints, generic_context);
 
         // TODO: ParamSpec and TypeVarTuple inference still uses legacy type mappings, which
         // cannot distinguish validity constraints from inference evidence.
@@ -6205,7 +6206,8 @@ impl<'db> CallInference<'_, 'db> {
         // Note that this will still lead to an invalid specialization, but may
         // produce more precise diagnostics.
         if !assignable_to_declared_type {
-            builder = SpecializationBuilder::new(db, self.env, constraints, generic_context);
+            builder =
+                SpecializationBuilder::new_for_call(db, self.env, constraints, generic_context);
             specialization_errors.clear();
             constraint_set_errors.fill(false);
 
@@ -6226,6 +6228,7 @@ impl<'db> CallInference<'_, 'db> {
             preferred_solutions_incomplete,
             &mut specialization_errors,
         );
+
         InferredCall {
             inferable_typevars: self.inferable_typevars,
             inference: Some(inference),
